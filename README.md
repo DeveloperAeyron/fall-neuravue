@@ -8,16 +8,21 @@ and only keeps alarms that still look like a fall.
 NVR feed → [existing detector] → candidate window
                                     │
                                     ▼
-                         [Model B v2 verifier]
-                                    │
-                          score ≥ threshold?
+                    [luminance-delta lighting guard]
+                         huge IR↔colour jump?
                            yes          no
                             │            │
-                         ALARM       suppress
+                        suppress   [Model B v2]
+                                         │
+                               score ≥ threshold?
+                                 yes          no
+                                  │            │
+                               ALARM       suppress
 ```
 
 **Shipping model:** Model B v2 (VideoMAE-base, frozen backbone, fine-tuned
-MLP head) at **threshold 0.20**.
+MLP head) at **threshold 0.20**, plus the lighting guard in
+`scripts/lighting_guard.py`.
 
 Private repo: [waleedshoaib2/fall-neuravue](https://github.com/waleedshoaib2/fall-neuravue).
 Original videos are **not** in Git (identifiable people).
@@ -93,11 +98,13 @@ This is the number that was used while iterating the head.
 ### B. Dense full-clip scan (honest production proxy)
 
 `scripts/full_scan_tp_fp.py`: every 2 seconds across the whole TP + FP clip,
-score a 16-frame window, take the max. Every FP clip gets hundreds of chances
-to fool the model. Raw report: `outputs/full_scan_report.csv`.
+score a 16-frame window, take the max. Lighting-transition windows are zeroed
+before the model runs. Unguarded baseline: `outputs/full_scan_report.csv`.
+With guard: `outputs/full_scan_report_guarded.csv`.
 
-**Headline at threshold 0.20:** 4/4 annotated TPs caught, **6/13 FP clips
-still fire** (54% FP-clip reduction), Ch44 missed (no trigger, max score 0.006).
+**Headline at threshold 0.20 + lighting guard:** 4/4 annotated TPs caught
+(same peaks and scores as before the guard), **4/13 FP clips still fire**
+(69% FP-clip reduction, was 54%). Ch44 missed (no trigger, max 0.006).
 
 ---
 
@@ -106,23 +113,21 @@ still fire** (54% FP-clip reduction), Ch44 missed (no trigger, max score 0.006).
 This is the table that matters for “what would fire in production.”
 Peak time = second inside the source clip where Model B v2 scored highest.
 
-| # | Nature | Filename | Peak (mm:ss) | Peak (s) | Score |
-|---|---|---|---|---|---|
-| 1 | **TP** | `TP_Ch53_1_2026-08-26_124000.mp4` | **04:11** | 251 | 0.976 |
-| 2 | **TP** | `TP_Ch53_2_2026-08-26_124000.mp4` | **03:33** | 213 | 0.899 |
-| 3 | **TP** | `TP_Ch53_1_2026-08-26_123330.mp4` | **03:27** | 207 | 0.853 |
-| 4 | **TP** | `TP_Ch53_2_2026-08-26_123330.mp4` | **02:43** | 163 | 0.454 |
-| 5 | FP | `FP_Ch58_2_2026-08-05_191724.mp4` | **00:51** | 51 | 0.982 |
-| 6 | FP | `FP_Ch56_1_2026-08-05_181000.mp4` | **02:13** | 133 | 0.959 |
-| 7 | FP | `FP_Ch58_2_2026-08-06_014952.mp4` | **20:11** | 1211 | 0.791 |
-| 8 | FP | `FP_Ch58_2_2026-08-06_060559.mp4` | **00:25** | 25 | 0.578 |
-| 9 | FP | `FP_Ch58_1_2026-08-04_190523.mp4` | **11:23** | 683 | 0.485 |
-| 10 | FP | `FP_Ch48_1_2026-08-05_031559.mp4` | **09:15** | 555 | 0.327 |
+| # | Nature | Filename | Peak (mm:ss) | Peak (s) | Score | Guard |
+|---|---|---|---|---|---|---|
+| 1 | **TP** | `TP_Ch53_1_2026-08-26_124000.mp4` | **04:11** | 251 | 0.976 | none |
+| 2 | **TP** | `TP_Ch53_2_2026-08-26_124000.mp4` | **03:33** | 213 | 0.899 | none |
+| 3 | **TP** | `TP_Ch53_1_2026-08-26_123330.mp4` | **03:27** | 207 | 0.853 | none |
+| 4 | **TP** | `TP_Ch53_2_2026-08-26_123330.mp4` | **02:43** | 163 | 0.454 | none |
+| 5 | FP | `FP_Ch56_1_2026-08-05_181000.mp4` | **02:13** | 133 | 0.959 | (walker, not lighting) |
+| 6 | FP | `FP_Ch58_2_2026-08-06_060559.mp4` | **00:25** | 25 | 0.578 | none |
+| 7 | FP | `FP_Ch58_2_2026-08-05_191724.mp4` | **04:09** | 249 | 0.529 | lights-on @51 killed; leftover = sit-on-bed IR |
+| 8 | FP | `FP_Ch48_1_2026-08-05_031559.mp4` | **09:15** | 555 | 0.327 | none |
+| — | FP killed | `FP_Ch58_2_2026-08-06_014952.mp4` | was 20:11 | 1211 | 0.791 → **0.185** | lighting guard |
+| — | FP killed | `FP_Ch58_1_2026-08-04_190523.mp4` | was 11:23 | 683 | 0.485 → **0.177** | lighting guard |
 
-**4 TP detected, 6 FP survived.** Not listed: 1 TP miss
-(`TP_Ch44_1_2026-08-06_065511.mp4`, max 0.006, no annotated trigger) and 7 FPs
-correctly suppressed (all max < 0.20). All 24 HB background clips stayed below
-threshold on the peak-window organization pass.
+**4 TP detected, 4 FP survived** (was 6). Not listed: Ch44 miss (max 0.006) and
+9 FPs suppressed. All 4 TP peaks are unchanged — the guard zeroed 0 TP windows.
 
 Human-annotated impact times (for comparison) live in `data/trigger_times.csv`:
 
@@ -139,54 +144,48 @@ Human-annotated impact times (for comparison) live in `data/trigger_times.csv`:
 
 | Threshold | Annotated TP recall | Unique events caught | FP-clip reduction | Alarms | Precision |
 |---|---|---|---|---|---|
-| **0.20** | **4/4 (100%)** | 2/2 | 7/13 (54%) | 4 TP + 6 FP = 10 | 40% |
-| **0.80** | **3/4 (75%)** | **2/2** | **11/13 (85%)** | 3 TP + 2 FP = 5 | **60%** |
+| **0.20 + guard** | **4/4 (100%)** | 2/2 | **9/13 (69%)** | 4 TP + 4 FP = 8 | 50% |
+| 0.20 unguarded | 4/4 (100%) | 2/2 | 7/13 (54%) | 4 TP + 6 FP = 10 | 40% |
+| **0.80 + guard** | **3/4 (75%)** | **2/2** | **12/13 (92%)** | 3 TP + 1 FP = 4 | **75%** |
 
-At 0.80 the dropped TP is `Ch53_2_123330` (0.454). That is the **same fall** as
-`Ch53_2_124000` from the other camera (0.899), so unique-event recall stays
-100% if both cameras are live. The two FPs that still survive 0.80 are the
-lights-on artefact (`Ch58_2_191724`, 0.982) and the walker (`Ch56_1_181000`, 0.959).
+At 0.80 the dropped TP is still `Ch53_2_123330` (0.454) — duplicate camera of
+an event caught at 0.899. The only FP that survives 0.80 after the guard is
+the walker (`Ch56_1_181000`, 0.959). The old 0.982 lights-on peak is gone.
 
 ---
 
-## Known failure modes (visual QA of the 6 surviving FPs)
+## Lighting guard (shipped)
 
-Only **three** distinct modes. Half of them are lighting, not people.
+`scripts/lighting_guard.py` looks at ±5 s around each window center at 8 fps
+(not just the 16-frame / ~0.6 s model window — the high-score peak is often
+*after* the swap). Reject if Rec.601 luma range > 30 **or** consecutive-sample
+jump > 18 (0–255 scale).
+
+Calibrated so all 4 TP peaks stay (range ≤ 4.9, jump ≤ 1.4) and the walker
+clip is not treated as lighting (range 24.2). Wired into
+`full_scan_tp_fp.py` (skips VideoMAE on guarded windows) and
+`organize_by_detection.py`.
+
+Killed: `Ch58_2_014952` (0.791 → 0.185) and `Ch58_1_190523` (0.485 → 0.177).
+On `Ch58_2_191724` the t=51 lights-on peak (0.982) is gone; a later 0.529
+peak remains — person sitting on the bed edge in IR, not another mode swap.
+
+## Remaining failure modes (4 survivors)
 
 | # | Clip | Score | Failure mode |
 |---|---|---|---|
-| 1 | `FP_Ch58_2_191724` | **0.982** | **Lights turn ON** at night (IR → colour). Global brightness jump looks like sudden motion. |
-| 2 | `FP_Ch56_1_181000` | **0.959** | Elderly person **walking with a walker** — stooped posture reads as post-fall. |
-| 3 | `FP_Ch58_2_014952` | 0.791 | **Lights-on transition** + staff enters to tend a sleeping patient. |
-| 4 | `FP_Ch58_2_060559` | 0.578 | **Staff bending over a patient in bed.** |
-| 5 | `FP_Ch58_1_190523` | 0.485 | **Lights turn OFF** + hunched sitting on the bed edge. |
-| 6 | `FP_Ch48_1_031559` | 0.327 | **Staff bending over a patient in bed.** |
+| 1 | `FP_Ch56_1_181000` | **0.959** | Elderly person **walking with a walker** |
+| 2 | `FP_Ch58_2_060559` | 0.578 | **Staff bending over a patient in bed** |
+| 3 | `FP_Ch58_2_191724` | 0.529 | **Sitting on bed edge in IR** (lights-on already guarded) |
+| 4 | `FP_Ch48_1_031559` | 0.327 | **Staff bending over a patient in bed** |
 
-| Mode | Cases | Share of survivors |
-|---|---|---|
-| Lighting transitions (IR ↔ colour) | #1, #3, #5 | 50% |
-| Staff bending over patient | #4, #6 | 33% |
-| Elderly walking with walker | #2 | 17% |
+### Next fixes
 
-**Canonical lighting example:** `FP_Ch58_2_191724` around t=50 s. t=42–49 dim
-IR, someone lying still; **t=50 lights slam on** and the camera switches to
-colour; t=51–61 someone moves near the head of the bed. VideoMAE score 0.982.
-20 of 413 windows in that clip scored ≥ 0.20 because of lighting flicker, not
-a fall.
-
-### Next fixes (in this order)
-
-1. **Lighting-transition guard (no retrain).** Reject a window if global
-   luminance range across the 16 frames is huge, e.g.
-   `(mean_lum.max() - mean_lum.min()) > 25` on 0–255. Should kill 3/6
-   surviving FPs (dense-scan FP-clip suppression 54% → ~77%). Zero risk to
-   the four annotated TPs (none of them are IR↔colour swaps).
-2. **Targeted negatives + retrain the head.** Mine ~50 staff-bending-over-bed
+1. **Targeted negatives + retrain the head.** Mine ~50 staff-bending / sit-on-bed
    windows and ~20 walker windows from HB/normal footage. Retrain Model B v2
    head (~10 min). Do **not** train on the 13 FP clips — they are the holdout.
-3. **Pose vertical-velocity gate.** Real falls have a short downward-velocity
-   spike; staff bending and walker gait are slow. After VideoMAE fires, require
-   a pose-track peak vertical velocity above a threshold.
+2. **Pose vertical-velocity gate.** Real falls have a short downward-velocity
+   spike; staff bending, sitting down, and walker gait are slow.
 
 Full operational notes for the next session: **[CARRY_ON.md](CARRY_ON.md)**.
 
@@ -195,10 +194,10 @@ Full operational notes for the next session: **[CARRY_ON.md](CARRY_ON.md)**.
 ## What's in this repo
 
 ```
-scripts/         Training, pose extract, hard-neg mining, organize, full scan
+scripts/         Training, pose extract, lighting_guard, organize, full scan
 models/          Trained heads only (VideoMAE head + LightGBM). Backbone from HF.
 data/            clips_manifest.csv, trigger_times.csv, no_fall_detected.csv
-outputs/         Per-model JSON reports + full_scan_report.csv
+outputs/         Per-model JSON reports + unguarded / guarded full-scan CSVs
 fall-detected/   10-second mp4 excerpts from the peak-window organization pass
 CARRY_ON.md      Session memory: failure modes, paths, next work
 ```

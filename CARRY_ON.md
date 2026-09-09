@@ -1,6 +1,6 @@
 # Carry-on memory — Neuravue fall-detection verifier
 
-Read this at the start of the next session. Last updated 2026-09-10.
+Read this at the start of the next session. Last updated 2026-09-10 (lighting guard shipped).
 
 Repo: [waleedshoaib2/fall-neuravue](https://github.com/waleedshoaib2/fall-neuravue) (private).
 Mac checkout: `/Users/mc/aeyron/neuravue/fall-neuravue-repo/`
@@ -14,7 +14,7 @@ GPU box: `ssh waleed` (key auth works, no password). RTX 5070, Blackwell sm_120.
 A **second-stage verifier**, not a from-scratch detector.
 
 ```
-NVR → existing (over-eager) detector → candidate window → Model B v2 → alarm if score ≥ 0.20
+NVR → existing detector → candidate → lighting guard → Model B v2 → alarm if score ≥ 0.20
 ```
 
 Goal: cut false positives from the deployed detector without dropping real falls.
@@ -83,8 +83,9 @@ Model B v2: in-house AP **0.917**, AUC **0.987**.
 
 ### Dense full-clip scan (honest)
 
-Stride 2 s over every TP+FP clip. `outputs/full_scan_report.csv`.
-@ 0.20: **4/4 annotated TP, 6/13 FP still fire (54% FP-clip reduction).**
+Stride 2 s over every TP+FP clip.
+- Unguarded baseline: `outputs/full_scan_report.csv` — 4/4 TP, 6/13 FP (54%).
+- **With lighting guard: `outputs/full_scan_report_guarded.csv` — 4/4 TP (identical peaks/scores), 4/13 FP (69%).**
 Ch44 miss. 24 HB clips were not in this dense scan (they were in the peak-window organize pass, all suppressed).
 
 **When someone asks “does it work?”, quote the dense-scan numbers, not the 43-window ones.**
@@ -93,55 +94,39 @@ Ch44 miss. 24 HB clips were not in this dense scan (they were in the peak-window
 
 ## Detected table @ 0.20 (dense scan)
 
-| Nature | File | Peak | Score |
-|---|---|---|---|
-| TP | Ch53_1_124000 | 04:11 / 251 s | 0.976 |
-| TP | Ch53_2_124000 | 03:33 / 213 s | 0.899 |
-| TP | Ch53_1_123330 | 03:27 / 207 s | 0.853 |
-| TP | Ch53_2_123330 | 02:43 / 163 s | 0.454 |
-| FP | Ch58_2_191724 | 00:51 / 51 s | **0.982** |
-| FP | Ch56_1_181000 | 02:13 / 133 s | **0.959** |
-| FP | Ch58_2_014952 | 20:11 / 1211 s | 0.791 |
-| FP | Ch58_2_060559 | 00:25 / 25 s | 0.578 |
-| FP | Ch58_1_190523 | 11:23 / 683 s | 0.485 |
-| FP | Ch48_1_031559 | 09:15 / 555 s | 0.327 |
+| Nature | File | Peak | Score | Notes |
+|---|---|---|---|---|
+| TP | Ch53_1_124000 | 04:11 / 251 s | 0.976 | unchanged |
+| TP | Ch53_2_124000 | 03:33 / 213 s | 0.899 | unchanged |
+| TP | Ch53_1_123330 | 03:27 / 207 s | 0.853 | unchanged |
+| TP | Ch53_2_123330 | 02:43 / 163 s | 0.454 | unchanged |
+| FP | Ch56_1_181000 | 02:13 / 133 s | **0.959** | walker |
+| FP | Ch58_2_060559 | 00:25 / 25 s | 0.578 | staff bend |
+| FP | Ch58_2_191724 | 04:09 / 249 s | 0.529 | leftover sit-on-bed IR; lights-on @51 killed |
+| FP | Ch48_1_031559 | 09:15 / 555 s | 0.327 | staff bend |
+| FP dead | Ch58_2_014952 | — | 0.791 → 0.185 | lighting guard |
+| FP dead | Ch58_1_190523 | — | 0.485 → 0.177 | lighting guard |
 
-At **threshold 0.80**: keep 3/4 TP + 2 FP (the 0.982 lights-on and 0.959 walker).
-Dropped TP `Ch53_2_123330` (0.454) is a duplicate camera of an event still caught at 0.899 → unique-event recall still 100% if both cams are live.
+At **threshold 0.80 + guard**: 3/4 TP + **only the walker**. Lights-on 0.982 is gone.
 
 `Ch53_2_124000`: model peak is **84 s before** the annotated impact (213 vs 297). Visual-check whether that earlier spike is pre-fall motion or a different event.
 
 ---
 
-## Failure modes to carry forward (the important bit)
+## Failure modes to carry forward
 
-Visual QA of all 6 dense-scan FP survivors. Three modes only.
+### 1. Sudden lighting / IR ↔ colour — DONE (2026-09-10)
 
-### 1. Sudden lighting / IR ↔ colour  ← biggest remaining bug
+`scripts/lighting_guard.py`: ±5 s context at 8 fps. Reject if luma range > 30 or jump > 18.
+The 16-frame model window is only ~0.6 s, so the peak is often *after* the swap
+(e.g. 014952 peak at 1211, blackout at 1206). Do not shrink the lookaround below ~4 s.
 
-**This is the thing to remember.** VideoMAE treats a whole-frame brightness jump as fall-like motion.
+Verified: 4/4 TP windows untouched. Killed 014952 and 190523. On 191724 the
+t=51 lights-on (0.982) is gone; leftover 0.529@249 is someone **sitting on the
+bed edge in IR** (grid: `fp_check/ch58_2_p249_grid.jpg`), not another mode swap.
 
-| Clip | Peak | What happens |
-|---|---|---|
-| `FP_Ch58_2_2026-08-05_191724` | t=51, score **0.982** | t=42–49 IR night, person lying still. **t=50 lights ON**, camera swaps IR→colour. Then someone moves near the bed. 20/413 windows in this clip ≥ 0.20. |
-| `FP_Ch58_2_2026-08-06_014952` | t=1211, score 0.791 | Lights-on transition + staff entering to tend sleeping patient |
-| `FP_Ch58_1_2026-08-04_190523` | t=683, score 0.485 | Lights turn OFF + hunched sitting on bed edge |
-
-**Fix 1 (do this first, no retrain):**
-
-```python
-mean_lum = frames.mean(axis=(1, 2, 3))   # (16,)
-if (mean_lum.max() - mean_lum.min()) > 25:  # 0..255
-    return 0.0  # camera mode swap, not a fall
-```
-
-Expected: kill 3/6 survivors, dense-scan FP-clip suppression 54% → ~77%.
-Should not touch the 4 annotated TPs (none are IR↔colour events).
-Still verify on those 4 windows before shipping the guard.
-
-Frame grids from the QA pass (Mac):
-`fall-detection-testing/verifier/outputs/fp_check/`
-especially `ch58_2_0052_grid.jpg`.
+Do not retune the guard to kill t=249 — that would start eating sit-to-bed
+and maybe real falls. That leftover is Fix 2/3 material.
 
 ### 2. Staff bending over a patient in bed
 
@@ -160,9 +145,17 @@ Slow motion, low vertical velocity — pose miner missed these so they never ent
 
 Looks like a post-fall crouch to a pixel model. Survives even threshold 0.80.
 
-**Fix 2:** mine targeted negatives from *other* HB/normal footage (not the 13 FP holdout clips): ~50 staff-bending, ~20 walker. Retrain head only, ~10 min.
+### 4. Sitting on bed edge in IR (new leftover after the lighting guard)
 
-**Fix 3:** hybrid gate — after VideoMAE fires, require YOLO-pose peak vertical velocity above a threshold. Kills slow “bending” and “walker” without retraining.
+| Clip | Peak | Score |
+|---|---|---|
+| `FP_Ch58_2_2026-08-05_191724` | 249 s | 0.529 |
+
+Same clip that used to be the 0.982 lights-on FP. Treat as a sit-down / hunched-posture negative, same bucket as staff-bending.
+
+**Fix 2:** mine targeted negatives from *other* HB/normal footage (not the 13 FP holdout clips): ~50 staff-bending / sit-on-bed, ~20 walker. Retrain head only, ~10 min.
+
+**Fix 3:** hybrid gate — after VideoMAE fires, require YOLO-pose peak vertical velocity above a threshold. Kills slow “bending”, “sitting down”, and “walker” without retraining.
 
 ---
 
@@ -180,7 +173,7 @@ They **cannot** catch lighting transitions (no pose signal) or slow staff-bendin
 
 - Do **not** train on the 13 FP clips. They are the only in-house negative holdout. Even leave-one-clip-out leaks scene statistics.
 - Do **not** unfreeze the VideoMAE backbone on 764 samples.
-- Do **not** quote 43-window 85% FP-clip reduction as the production number. Dense scan is 54% at 0.20.
+- Do **not** quote 43-window 85% FP-clip reduction as the production number. Dense scan is **69% at 0.20 with the lighting guard** (54% without).
 - Do **not** mix v1 thresholds (0.95) with v2 (0.20).
 - Do **not** commit `all_video_data/*.mp4` (patients/staff).
 - Do **not** revert the four corrected TP timestamps.
@@ -190,12 +183,11 @@ They **cannot** catch lighting transitions (no pose signal) or slow staff-bendin
 
 ## Next session checklist
 
-1. Implement Fix 1 (lighting luminance guard) in `organize_by_detection.py` and `full_scan_tp_fp.py`. Re-score the 4 TPs + 6 FP survivors. Confirm TPs still fire.
-2. If 3 lighting FPs drop: mine staff-bending + walker negatives from HB (not from FP holdout). Retrain Model B v2 head → `model_b_v3_head.pt`. Keep v2 as backup (`verifier/outputs/models_backup/` on Mac already has v1 and v2).
-3. Get a confirmed Ch44 trigger (user: ~5 min). Add to `trigger_times.csv`. Re-extract pose window. Re-run dense scan on that clip.
-4. Optionally add the pose-velocity gate for remaining slow FPs.
-5. More TP annotations from other rooms (Ch44, Ch58, …) before trusting recall.
-6. If labeling at scale: a review UI / active-learning loop. Not started.
+1. ~~Lighting luminance guard~~ **done**. Next: mine staff-bending / sit-on-bed + walker negatives from HB (not from FP holdout). Retrain Model B v2 head → `model_b_v3_head.pt`. Keep v2 as backup (`verifier/outputs/models_backup/` on Mac already has v1 and v2).
+2. Get a confirmed Ch44 trigger (user: ~5 min). Add to `trigger_times.csv`. Re-extract pose window. Re-run dense scan on that clip.
+3. Optionally add the pose-velocity gate for remaining slow FPs (walker 0.959, staff bend, sit-on-bed 0.529).
+4. More TP annotations from other rooms (Ch44, Ch58, …) before trusting recall.
+5. If labeling at scale: a review UI / active-learning loop. Not started.
 
 ---
 

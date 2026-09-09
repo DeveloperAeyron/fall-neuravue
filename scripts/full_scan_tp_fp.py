@@ -29,6 +29,7 @@ from train_model_b_videomae import (
     build_model, read_and_prep, read_video_window,
     MODEL_NAME, N_FRAMES, DEVICE,
 )
+from lighting_guard import build_luma_timeline
 
 ROOT = Path(r"D:\fall-neuravue")
 CLIPS_MANIFEST = ROOT / "data" / "clips_manifest.csv"
@@ -57,37 +58,55 @@ def find_video(clip: str) -> Path | None:
 
 
 @torch.no_grad()
-def scan_clip(backbone, head, video_path: Path, duration_s: float, mean, std) -> tuple[list[float], list[float]]:
-    """Return list of (center_s, score) for every window."""
-    # window centers such that a full 16-frame window fits
+def scan_clip(backbone, head, video_path: Path, duration_s: float, mean, std):
+    """Score every window. Lighting-transition windows are zeroed and skipped."""
     centers = np.arange(1.0, max(1.5, duration_s - 1.0), WINDOW_STRIDE_SEC)
-    scores: list[float] = []
+    scores = [0.0] * len(centers)
+    guarded = [False] * len(centers)
+    timeline = build_luma_timeline(video_path)
 
-    # Batch windows through VideoMAE
+    pending_idx: list[int] = []
     buf_x: list[torch.Tensor] = []
-    for cs in centers:
-        frames = read_video_window(video_path, float(cs))
-        buf_x.append(read_and_prep(frames, mean, std))
-        if len(buf_x) == BATCH:
-            x = torch.stack(buf_x, dim=0).to(DEVICE)
-            emb = backbone(pixel_values=x).last_hidden_state.mean(dim=1)
-            p = F.softmax(head(emb), dim=-1)[:, 1].cpu().numpy().tolist()
-            scores.extend(p); buf_x.clear()
-    if buf_x:
+
+    def flush() -> None:
+        if not buf_x:
+            return
         x = torch.stack(buf_x, dim=0).to(DEVICE)
         emb = backbone(pixel_values=x).last_hidden_state.mean(dim=1)
         p = F.softmax(head(emb), dim=-1)[:, 1].cpu().numpy().tolist()
-        scores.extend(p)
+        for j, s in zip(pending_idx, p):
+            scores[j] = float(s)
+        buf_x.clear()
+        pending_idx.clear()
 
-    return centers.tolist(), scores
+    for i, cs in enumerate(centers):
+        decision = timeline.decide(float(cs))
+        if decision.rejected:
+            guarded[i] = True
+            continue
+        frames = read_video_window(video_path, float(cs))
+        buf_x.append(read_and_prep(frames, mean, std))
+        pending_idx.append(i)
+        if len(buf_x) == BATCH:
+            flush()
+    flush()
+    return centers.tolist(), scores, guarded
 
 
 def main() -> None:
+    filters = [a for a in sys.argv[1:] if not a.endswith(".csv")]
+    if any(a.endswith(".csv") for a in sys.argv[1:]):
+        global OUT_CSV
+        OUT_CSV = ROOT / Path(next(a for a in sys.argv[1:] if a.endswith(".csv"))).name
     with CLIPS_MANIFEST.open() as f:
         clips = [r for r in csv.DictReader(f)
                  if r["bucket"] in ("TrueFalls", "NewTPRecords", "FlasePositives")]
+    if filters:
+        clips = [r for r in clips if any(f in r["clip"] for f in filters)]
     print(f"[scan] {len(clips)} clips ({sum(1 for c in clips if c['bucket'] in ('TrueFalls','NewTPRecords'))} TP, "
-          f"{sum(1 for c in clips if c['bucket']=='FlasePositives')} FP)")
+          f"{sum(1 for c in clips if c['bucket']=='FlasePositives')} FP)"
+          + (f"  filter={filters}" if filters else "")
+          + f"  -> {OUT_CSV.name}")
 
     backbone, head, mean, std = load_model()
 
@@ -101,14 +120,14 @@ def main() -> None:
         if vp is None:
             print(f"[{i:2}/{len(clips)}] MISSING {clip}"); continue
         t0 = time.time()
-        centers, scores = scan_clip(backbone, head, vp, dur, mean, std)
+        centers, scores, guarded = scan_clip(backbone, head, vp, dur, mean, std)
         dt = time.time() - t0
         max_i = int(np.argmax(scores))
         max_score = float(scores[max_i])
         n_above = int(sum(1 for s in scores if s >= THRESHOLD))
+        n_guarded = int(sum(guarded))
         detected = max_score >= THRESHOLD
         expected = "TP" if bucket in ("TrueFalls", "NewTPRecords") else "FP"
-        outcome = ""
         if expected == "TP" and detected: outcome = "TP_DETECT"
         elif expected == "TP" and not detected: outcome = "TP_MISS"
         elif expected == "FP" and detected: outcome = "FP_SURVIVED"
@@ -116,6 +135,7 @@ def main() -> None:
         rows.append({
             "clip": clip, "bucket": bucket, "duration_s": round(dur, 1),
             "n_windows_scored": len(scores),
+            "n_windows_lighting_guarded": n_guarded,
             "max_score": round(max_score, 4),
             "argmax_t": round(centers[max_i], 1),
             "n_windows_above_threshold": n_above,
@@ -123,7 +143,8 @@ def main() -> None:
             "outcome": outcome,
         })
         print(f"[{i:2}/{len(clips)}] {outcome:<14} {bucket[:15]:<15} {clip[:44]:<44} "
-              f"max={max_score:.3f}@{centers[max_i]:.0f}s  n>={THRESHOLD}: {n_above}/{len(scores)}  ({dt:.1f}s)")
+              f"max={max_score:.3f}@{centers[max_i]:.0f}s  n>={THRESHOLD}: {n_above}/{len(scores)}  "
+              f"guarded={n_guarded}  ({dt:.1f}s)")
 
     # write CSV
     with OUT_CSV.open("w", newline="") as f:

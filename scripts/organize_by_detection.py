@@ -33,6 +33,7 @@ from train_model_b_videomae import (
     build_model, read_and_prep, read_video_window,
     MODEL_NAME, N_FRAMES, IMG_SIZE, DEVICE,
 )
+from lighting_guard import decide_window
 from mine_hard_negatives import scan_clip_for_peaks
 from ultralytics import YOLO
 
@@ -61,13 +62,16 @@ def load_model():
     return backbone, head, mean, std
 
 
-def score_window(backbone, head, video_path: Path, center_s: float, mean, std) -> float:
+def score_window(backbone, head, video_path: Path, center_s: float, mean, std) -> tuple[float, str]:
+    guard = decide_window(video_path, center_s)
+    if guard.rejected:
+        return 0.0, f"lighting_guard: {guard.reason}"
     frames = read_video_window(video_path, center_s)
     x = read_and_prep(frames, mean, std).unsqueeze(0).to(DEVICE)
     with torch.no_grad():
         emb = backbone(pixel_values=x).last_hidden_state.mean(dim=1)
         p = F.softmax(head(emb), dim=-1)[0, 1].item()
-    return float(p)
+    return float(p), "ok"
 
 
 def collect_candidate_centers() -> dict[str, list[float]]:
@@ -147,12 +151,15 @@ def main() -> None:
             dur = float(c["duration_s"])
             centers = [dur * 0.3, dur * 0.5, dur * 0.7]
 
-        # Score each candidate
-        best = {"score": -1.0, "center": None}
+        # Score each candidate (lighting-transition windows come back as 0)
+        best = {"score": -1.0, "center": None, "note": ""}
+        n_guarded = 0
         for cs in centers:
-            s = score_window(backbone, head, video_path, cs, mean, std)
+            s, note = score_window(backbone, head, video_path, cs, mean, std)
+            if note.startswith("lighting_guard"):
+                n_guarded += 1
             if s > best["score"]:
-                best = {"score": s, "center": cs}
+                best = {"score": s, "center": cs, "note": note}
 
         dt = time.time() - t0
         if best["score"] >= THRESHOLD:
@@ -166,14 +173,17 @@ def main() -> None:
                                    "score": round(best["score"], 4),
                                    "extracted_to": str(out_path.relative_to(ROOT)) if ok else "",
                                    "extract_status": status})
-            print(f"[{i:2}/{len(manifest)}] DETECT {clip[:50]:<50} score={best['score']:.3f} t={best['center']:.0f}s -> {out_name}  ({dt:.1f}s)")
+            print(f"[{i:2}/{len(manifest)}] DETECT {clip[:50]:<50} score={best['score']:.3f} t={best['center']:.0f}s -> {out_name}  guarded={n_guarded}  ({dt:.1f}s)")
         else:
+            reason = f"max_score {best['score']:.3f} < threshold {THRESHOLD}"
+            if n_guarded:
+                reason += f"; {n_guarded} window(s) lighting-guarded"
             not_detected_rows.append({"clip": clip, "bucket": c["bucket"],
                                        "label_original": c["label"],
                                        "n_windows_scored": len(centers),
                                        "max_score": round(best["score"], 4),
-                                       "reason": f"max_score {best['score']:.3f} < threshold {THRESHOLD}"})
-            print(f"[{i:2}/{len(manifest)}] no    {clip[:50]:<50} max={best['score']:.3f}  ({dt:.1f}s)")
+                                       "reason": reason})
+            print(f"[{i:2}/{len(manifest)}] no    {clip[:50]:<50} max={best['score']:.3f}  guarded={n_guarded}  ({dt:.1f}s)")
 
     # Write CSVs
     if detected_rows:
