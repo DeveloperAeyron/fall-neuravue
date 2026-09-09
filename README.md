@@ -154,21 +154,82 @@ the walker (`Ch56_1_181000`, 0.959). The old 0.982 lights-on peak is gone.
 
 ---
 
-## Lighting guard (shipped)
+## Lighting guard — implementation
 
-`scripts/lighting_guard.py` looks at ±5 s around each window center at 8 fps
-(not just the 16-frame / ~0.6 s model window — the high-score peak is often
-*after* the swap). Reject if Rec.601 luma range > 30 **or** consecutive-sample
-jump > 18 (0–255 scale).
+Full module: [`scripts/lighting_guard.py`](scripts/lighting_guard.py).
+Production entry point (guard + Model B on one window):
+[`scripts/infer_window.py`](scripts/infer_window.py).
 
-Calibrated so all 4 TP peaks stay (range ≤ 4.9, jump ≤ 1.4) and the walker
-clip is not treated as lighting (range 24.2). Wired into
-`full_scan_tp_fp.py` (skips VideoMAE on guarded windows) and
-`organize_by_detection.py`.
+Also called from `full_scan_tp_fp.py` and `organize_by_detection.py`.
 
-Killed: `Ch58_2_014952` (0.791 → 0.185) and `Ch58_1_190523` (0.485 → 0.177).
-On `Ch58_2_191724` the t=51 lights-on peak (0.982) is gone; a later 0.529
-peak remains — person sitting on the bed edge in IR, not another mode swap.
+The 16-frame VideoMAE window is only ~0.6 s, so the high-score peak is often
+*after* the lights change. The guard samples **±5 s at 8 fps**, 160×90 preview:
+
+```python
+CONTEXT_RADIUS_SEC = 5.0
+SAMPLE_FPS = 8.0
+LUM_RANGE_THRESHOLD = 30.0   # max-min Rec.601 luma, 0–255
+LUM_JUMP_THRESHOLD = 18.0    # consecutive-sample jump
+
+def _luma_bgr(frame) -> float:
+    small = cv2.resize(frame, (160, 90), interpolation=cv2.INTER_AREA)
+    b, g, r = small.reshape(-1, 3).mean(axis=0)
+    return float(0.114 * b + 0.587 * g + 0.299 * r)
+
+def _decide(lum) -> bool:
+    rng = lum.max() - lum.min()
+    jump = abs(np.diff(lum)).max()
+    return rng > LUM_RANGE_THRESHOLD or jump > LUM_JUMP_THRESHOLD
+    # rejected → score forced to 0, VideoMAE is skipped
+```
+
+Calibrated on the labeled peaks:
+
+| kind | range ±5s | jump ±5s | decision |
+|---|---|---|---|
+| 4 TP peaks + annots | ≤ 4.9 | ≤ 1.4 | keep |
+| walker `Ch56_1_181000` | 24.2 | 8.7 | keep (not lighting) |
+| lights ON `Ch58_2_191724` | 58–68 | 58 | reject |
+| lights ON `Ch58_2_014952` | 65.6 | 25.6 | reject (16-frame range was only 3.5) |
+| lights OFF `Ch58_1_190523` | 216 | 125 | reject |
+
+Killed on the dense rescan: `Ch58_2_014952` (0.791 → 0.185) and
+`Ch58_1_190523` (0.485 → 0.177). On `Ch58_2_191724` the t=51 lights-on peak
+(0.982) is gone; a later 0.529 peak remains — sit-on-bed IR, not a mode swap.
+
+---
+
+## Can a 5090 run this on 20 RTSP streams?
+
+**Yes — as a second-stage verifier, easily.** That is what this repo is.
+
+20 cameras fire a candidate only when the existing detector alarms. VideoMAE
+then scores a 16-frame 224×224 clip (~30 ms on a 5070, less on a 5090). Even
+if every camera alarmed once a minute, that is ~0.3 forwards/s. The 5090
+(32 GB, 2× NVDEC) is idle most of the time.
+
+**Also yes for always-on 2 s sliding windows on all 20 streams**, which is
+what `full_scan_tp_fp.py` does offline:
+
+| Piece | 20 × 1360×768 @ ~15–25 fps, score every 2 s | 5090 fit |
+|---|---|---|
+| VideoMAE-base + head | 10 windows/s; ~1–2 GB VRAM fp16; ~10–30 ms each | plenty of headroom |
+| Lighting guard | 8 fps, 160×90, CPU | noise |
+| Decode | 20 H.264 1080p-class streams | 5090 NVDEC is rated far above this (~2 decoders; 1080p30 H.264 is hundreds of streams in isolation) |
+
+Bottleneck is **not** the 5090. It is how you decode:
+
+- Current scripts use OpenCV `VideoCapture` on files (CPU, `cap.set` seeks).
+  Do **not** use that for 20 live RTSP feeds.
+- For live: FFmpeg/DeepStream **NVDEC** → GPU frames → batched VideoMAE
+  (one forward of 20 windows every 2 s). Keep one shared backbone in VRAM.
+
+**Tighter, still yes:** YOLO11m-pose + VideoMAE on all 20 as a full detector
+(not just a verifier), batched, 5 fps pose. 32 GB is enough; measure before
+promising 15 fps pose on every stream at 1360×768.
+
+**No extra card needed** for the verifier-on-20-RTSP design. One 5090 is the
+comfortable box; a 5070 (12 GB) would also run the verifier-only path.
 
 ## Remaining failure modes (4 survivors)
 
@@ -194,7 +255,8 @@ Full operational notes for the next session: **[CARRY_ON.md](CARRY_ON.md)**.
 ## What's in this repo
 
 ```
-scripts/         Training, pose extract, lighting_guard, organize, full scan
+scripts/         lighting_guard.py, infer_window.py (production path),
+                 train / pose / organize / full scan
 models/          Trained heads only (VideoMAE head + LightGBM). Backbone from HF.
 data/            clips_manifest.csv, trigger_times.csv, no_fall_detected.csv
 outputs/         Per-model JSON reports + unguarded / guarded full-scan CSVs
