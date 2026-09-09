@@ -12,12 +12,13 @@ Le2i + HB hard negatives) evaluated on 43 candidate windows
 
 | Threshold | Recall | FP window reduction | FP clip reduction |
 |---|---|---|---|
-| **0.24** | **4/4 (100%)** | 37/39 (95%) | 12/13 (92%) |
+| **0.20** (shipping) | **4/4 (100%)** | 37/39 (95%) | 11/13 (85%) |
+| 0.24 | 3/4 (75%) | 37/39 (95%) | 12/13 (92%) |
 | 0.30 | 3/4 (75%) | 39/39 (100%) | 13/13 (100%) |
 
-Full clip-level scan on all 42 available clips (`scripts/organize_by_detection.py`)
-detected 4 of 5 known TP clips and 1 of 13 FP clips, correctly rejecting
-all 24 unlabeled HB (background) clips. See `data/no_fall_detected.csv` and
+Full clip-level scan on all 42 available clips (`scripts/organize_by_detection.py`
+at threshold 0.20) detected all 4 known TP clips (with an annotated trigger)
+and 2 of 13 FP clips, correctly rejecting all 24 unlabeled HB (background) clips. See `data/no_fall_detected.csv` and
 `fall-detected/_detections.csv`.
 
 ## What's in this repo

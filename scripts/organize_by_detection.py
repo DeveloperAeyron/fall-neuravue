@@ -47,7 +47,7 @@ OUT_DIR = ROOT / "fall-detected"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 CSV_OUT = ROOT / "no_fall_detected.csv"
 
-THRESHOLD = 0.24
+THRESHOLD = 0.20
 WINDOW_SEC = 10.0  # ffmpeg-extracted clip length (5s each side of trigger)
 
 
