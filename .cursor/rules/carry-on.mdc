@@ -1,0 +1,40 @@
+---
+description: Neuravue fall-verifier session memory — lighting FPs, Model B v2, next fixes
+alwaysApply: true
+---
+
+# Fall-detection verifier — carry-on
+
+This workspace is the Neuravue NVR **second-stage fall verifier**.
+Full memory: `CARRY_ON.md` in `/Users/mc/aeyron/neuravue/fall-neuravue-repo/`
+and the GitHub repo `waleedshoaib2/fall-neuravue`.
+
+## Shipping state
+
+- Model **B v2**: frozen VideoMAE-base + MLP head (`models/model_b_v2_head.pt`).
+- Threshold **0.20** (v2 scale; v1 used 0.95 — do not mix).
+- Train: Le2i Fall-vs-rest + 72 HB hard-neg peaks. **FP clips are holdout — never train on them.**
+- GPU: `ssh waleed`, Python `D:\fall-detection-testing\.venv\Scripts\python.exe`, code `D:\fall-neuravue\`.
+- Mac videos: `all_video_data/`. Do not git-commit mp4 sources.
+
+## Honest numbers (dense 2 s scan, not the 43-window test)
+
+At 0.20: 4/4 annotated TPs, **6/13 FP clips still fire** (54% FP-clip reduction).
+Ch44 TP has no trigger (user said ~5 min; max score 0.006).
+
+## THE thing to remember: sudden lighting changes
+
+Half of surviving FPs are **IR ↔ colour / lights on-off**, not people falling.
+Canonical: `FP_Ch58_2_2026-08-05_191724` at t=50s, score 0.982 — lights slam on, camera mode swap.
+Also `FP_Ch58_2_014952` (0.791) and `FP_Ch58_1_190523` (0.485).
+
+Next work, in order:
+1. Luminance-delta guard on the 16-frame window (reject if max-min mean luma > ~25). No retrain.
+2. Targeted negatives for staff-bending-over-bed and elderly-with-walker; retrain head only.
+3. Optional pose vertical-velocity gate for slow FPs.
+4. Annotate `TP_Ch44_1_2026-08-06_065511.mp4`.
+
+Other FP modes: walker `FP_Ch56_1_181000` (0.959); staff bending `FP_Ch58_2_060559` (0.578) and `FP_Ch48_1_031559` (0.327).
+
+Corrected TP triggers (do not revert): Ch53_1_123330=217s, Ch53_1_124000=251s, Ch53_2_123330=179s, Ch53_2_124000=297s.
+Ch53_2_124000 dense-scan peak is 213s (84s early) — re-check visually.
