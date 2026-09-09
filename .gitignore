@@ -1,0 +1,33 @@
+# Large / private data — never commit
+all_video_data/
+*.mp4.orig
+*.rar
+*.zip
+!fall-detected/*.mp4
+
+# Model artifacts we don't want (only ship the trained head)
+outputs/pose/le2i/
+outputs/pose/hard_negs/
+outputs/pose/in_house_v2/
+outputs/pose/qa/
+outputs/pose/preview_frames/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+
+# OS / editor
+.DS_Store
+._*
+.idea/
+.vscode/
+
+# Local intermediate outputs
+_fall_scan/
+smoke/
+smoke_logs/
+test_logs/
+Untitled

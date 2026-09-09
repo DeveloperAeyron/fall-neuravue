@@ -1,0 +1,5 @@
+clip,trigger_s,window_start,window_end,confirmed_by,notes
+TP_Ch53_1_2026-08-26_123330.mp4,217,214,220,human,fall onto floor next to console
+TP_Ch53_1_2026-08-26_124000.mp4,251,249,253,human_visual,older man falls between staff; impact around t=251-252
+TP_Ch53_2_2026-08-26_123330.mp4,179,175,183,human,confirmed 2:55-3:03 range
+TP_Ch53_2_2026-08-26_124000.mp4,297,295,299,human_visual,same event as Ch53_1_124000 from opposite cam; impact at t=297

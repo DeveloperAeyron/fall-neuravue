@@ -1,0 +1,142 @@
+{
+  "rows": [
+    {
+      "clip": "negative_FP_Ch42_1_2026-08-05_125822_t832",
+      "label": "negative",
+      "score": 0.45998310141295873,
+      "best_start": 32,
+      "best_track": 0,
+      "best_mov": 3.223878163729216
+    },
+    {
+      "clip": "negative_FP_Ch42_1_2026-08-05_154423_t556",
+      "label": "negative",
+      "score": 0.4725542506946818,
+      "best_start": 0,
+      "best_track": 1,
+      "best_mov": 2.0292014817601705
+    },
+    {
+      "clip": "negative_FP_Ch42_1_2026-08-06_060004_t414",
+      "label": "negative",
+      "score": 0.05297698047053127,
+      "best_start": 0,
+      "best_track": 0,
+      "best_mov": 0.007281595064064551
+    },
+    {
+      "clip": "negative_FP_Ch47_2_2026-08-06_071016_t697",
+      "label": "negative",
+      "score": 0.05297698047053127,
+      "best_start": 0,
+      "best_track": 0,
+      "best_mov": 0.007840655625912234
+    },
+    {
+      "clip": "negative_FP_Ch48_1_2026-08-05_031559_t413",
+      "label": "negative",
+      "score": 0.053024688409213545,
+      "best_start": 12,
+      "best_track": 0,
+      "best_mov": 0.06646492237155072
+    },
+    {
+      "clip": "negative_FP_Ch48_1_2026-08-05_065539_t413",
+      "label": "negative",
+      "score": 0.06793246013257125,
+      "best_start": 8,
+      "best_track": 0,
+      "best_mov": 0.1972281528513157
+    },
+    {
+      "clip": "negative_FP_Ch55_1_2026-08-04_175304_t692",
+      "label": "negative",
+      "score": 0.4727926404906165,
+      "best_start": 24,
+      "best_track": 0,
+      "best_mov": 1.8293070787846812
+    },
+    {
+      "clip": "negative_FP_Ch56_1_2026-08-05_181000_t415",
+      "label": "negative",
+      "score": 0.23475933354250164,
+      "best_start": 28,
+      "best_track": 0,
+      "best_mov": 0.007820384061725529
+    },
+    {
+      "clip": "negative_FP_Ch58_1_2026-08-04_190523_t420",
+      "label": "negative",
+      "score": 0.05302465812980393,
+      "best_start": 12,
+      "best_track": 0,
+      "best_mov": 0.055974384026687335
+    },
+    {
+      "clip": "negative_FP_Ch58_2_2026-08-05_144652_t623",
+      "label": "negative",
+      "score": 0.4717202682458808,
+      "best_start": 32,
+      "best_track": 0,
+      "best_mov": 2.377311220936821
+    },
+    {
+      "clip": "negative_FP_Ch58_2_2026-08-05_191724_t413",
+      "label": "negative",
+      "score": 0.2641906088358549,
+      "best_start": 12,
+      "best_track": 0,
+      "best_mov": 0.2291096602645601
+    },
+    {
+      "clip": "negative_FP_Ch58_2_2026-08-06_014952_t619",
+      "label": "negative",
+      "score": 0.0,
+      "best_start": 0,
+      "best_track": 0,
+      "best_mov": 0.0
+    },
+    {
+      "clip": "negative_FP_Ch58_2_2026-08-06_060559_t619",
+      "label": "negative",
+      "score": 0.06775998106536553,
+      "best_start": 0,
+      "best_track": 0,
+      "best_mov": 0.06292027492026549
+    },
+    {
+      "clip": "positive_TP_Ch53_1_2026-08-26_123330_t217",
+      "label": "positive",
+      "score": 0.5897908047710769,
+      "best_start": 0,
+      "best_track": 0,
+      "best_mov": 0.9758906583155722
+    },
+    {
+      "clip": "positive_TP_Ch53_1_2026-08-26_124000_t256",
+      "label": "positive",
+      "score": 0.2749404016816357,
+      "best_start": 12,
+      "best_track": 1,
+      "best_mov": 1.4473954855528763
+    },
+    {
+      "clip": "positive_TP_Ch53_2_2026-08-26_123330_t175",
+      "label": "positive",
+      "score": 0.1843169713424853,
+      "best_start": 32,
+      "best_track": 0,
+      "best_mov": 0.6419089039114844
+    },
+    {
+      "clip": "positive_TP_Ch53_2_2026-08-26_124000_t300",
+      "label": "positive",
+      "score": 0.14544219659203358,
+      "best_start": 8,
+      "best_track": 1,
+      "best_mov": 1.2036529720433964
+    }
+  ],
+  "ap": 0.5166666666666667,
+  "auc": 0.6923076923076923
+}
