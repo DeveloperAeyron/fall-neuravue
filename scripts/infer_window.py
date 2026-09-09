@@ -56,7 +56,8 @@ def load_model():
     return backbone, head, mean, std
 
 
-def score_window(video_path: Path, center_s: float, backbone, head, mean, std) -> dict:
+def score_window(video_path: Path, center_s: float, backbone, head, mean, std,
+                 threshold: float = THRESHOLD) -> dict:
     guard = decide_window(video_path, center_s)
     if guard.rejected:
         return {
@@ -75,7 +76,7 @@ def score_window(video_path: Path, center_s: float, backbone, head, mean, std) -
         p = F.softmax(head(emb), dim=-1)[0, 1].item()
     return {
         "score": float(p),
-        "alarm": float(p) >= THRESHOLD,
+        "alarm": float(p) >= threshold,
         "guarded": False,
         "reason": "ok",
         "luma_range": guard.lum_range,
@@ -89,11 +90,10 @@ def main() -> None:
     ap.add_argument("center_s", type=float, help="window center in seconds")
     ap.add_argument("--threshold", type=float, default=THRESHOLD)
     args = ap.parse_args()
-    global THRESHOLD
-    THRESHOLD = args.threshold
 
     backbone, head, mean, std = load_model()
-    out = score_window(args.video, args.center_s, backbone, head, mean, std)
+    out = score_window(args.video, args.center_s, backbone, head, mean, std,
+                       threshold=args.threshold)
     print(
         f"{args.video.name}  t={args.center_s:.1f}s  "
         f"score={out['score']:.3f}  alarm={out['alarm']}  "
